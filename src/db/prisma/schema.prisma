@@ -1,0 +1,285 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  TEACHER
+  STUDENT
+  ADMIN
+}
+
+enum Skill {
+  READING
+  LISTENING
+  USEE
+  WRITING
+}
+
+enum Mode {
+  SHORT
+  FULL
+}
+
+enum SessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
+enum SkillAttemptStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum WritingStatus {
+  PENDING
+  EVALUATING
+  COMPLETED
+  FAILED
+}
+
+enum ProviderType {
+  OPENAI
+  OLLAMA
+  CUSTOM
+}
+
+enum KeySource {
+  TEACHER
+  STUDENT
+  LOCAL
+}
+
+enum OwnerType {
+  TEACHER
+  STUDENT
+}
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  role         Role
+  profile      Json?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  teacher      Teacher?
+  student      Student?
+  authSessions AuthSession[]
+}
+
+model Teacher {
+  id             String      @id @default(cuid())
+  userId         String      @unique
+  org            String?
+  aiKeyEncrypted String?
+  aiProvider     ProviderType?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  students       Student[]
+  items          Item[]
+}
+
+model Student {
+  id        String        @id @default(cuid())
+  userId    String        @unique
+  teacherId String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teacher   Teacher?      @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  sessions  TestSession[]
+}
+
+model AuthSession {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model MagicLinkToken {
+  id         String    @id @default(cuid())
+  email      String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([email])
+}
+
+model TestSession {
+  id                 String             @id @default(cuid())
+  studentId          String
+  mode               Mode
+  status             SessionStatus      @default(IN_PROGRESS)
+  startedAt          DateTime           @default(now())
+  completedAt        DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  student            Student            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  responses          Response[]
+  skillAttempts      SkillAttempt[]
+  writingSubmission  WritingSubmission?
+  skillEstimates     SkillEstimate[]
+  report             Report?
+
+  @@index([studentId])
+}
+
+model Item {
+  id                 String     @id
+  skill              Skill
+  subskill           String
+  level              String
+  difficulty         Float
+  type               String
+  question           String
+  options            Json?
+  answer             String
+  explanation        String?
+  active             Boolean    @default(true)
+  createdByTeacherId String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  createdByTeacher   Teacher?   @relation(fields: [createdByTeacherId], references: [id], onDelete: SetNull)
+  responses          Response[]
+
+  @@index([skill, difficulty])
+  @@index([level])
+}
+
+model Response {
+  id              String      @id @default(cuid())
+  sessionId       String
+  itemId          String
+  skill           Skill
+  isCorrect       Boolean
+  responsePayload Json
+  latencyMs       Int?
+  createdAt       DateTime    @default(now())
+  session         TestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  item            Item        @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([sessionId, skill])
+}
+
+model SkillAttempt {
+  id        String             @id @default(cuid())
+  sessionId String
+  skill     Skill
+  status    SkillAttemptStatus @default(NOT_STARTED)
+  startedAt DateTime?
+  endedAt   DateTime?
+  session   TestSession        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, skill])
+}
+
+model WritingSubmission {
+  id        String        @id @default(cuid())
+  sessionId String        @unique
+  prompt    String
+  text      String
+  wordCount Int
+  status    WritingStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  session   TestSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  evaluation WritingEvaluation?
+}
+
+model WritingEvaluation {
+  id            String            @id @default(cuid())
+  submissionId  String            @unique
+  task          Int
+  coherence     Int
+  lexical       Int
+  grammar       Int
+  cefr          String
+  suffix        String
+  feedback      String
+  provider      ProviderType
+  keySource     KeySource
+  rawJson       Json
+  createdAt     DateTime          @default(now())
+  submission    WritingSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+}
+
+model SkillEstimate {
+  id                String      @id @default(cuid())
+  sessionId         String
+  skill             Skill
+  theta             Float
+  cefr              String
+  suffix            String
+  confidence        Float
+  accuracy          Float
+  consistency       Float
+  highestDifficulty Float
+  errorPatterns     Json
+  itemsAnswered     Int
+  updatedAt         DateTime    @updatedAt
+  session           TestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, skill])
+}
+
+model Report {
+  id                      String      @id @default(cuid())
+  sessionId               String      @unique
+  perSkill                Json
+  overallLevel            String
+  overallNumeric          Float
+  provisionalOverallLevel String?
+  suggestedCourseLevel    String
+  radarData               Json
+  confidenceData          Json
+  feedback                Json
+  createdAt               DateTime    @default(now())
+  updatedAt               DateTime    @updatedAt
+  session                 TestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model UsageQuota {
+  id              String    @id @default(cuid())
+  ownerType       OwnerType
+  ownerId         String
+  date            DateTime
+  dailyUsed       Int       @default(0)
+  dailyLimit      Int       @default(100)
+  perStudentUsed  Int       @default(0)
+  perStudentLimit Int       @default(10)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([ownerType, ownerId, date])
+  @@index([ownerType, ownerId])
+}
+
+model AuditLog {
+  id           String       @id @default(cuid())
+  actorId      String?
+  action       String
+  targetType   String
+  targetId     String?
+  provider     ProviderType?
+  tokenEstimate Int?
+  status       String
+  metadata     Json?
+  timestamp    DateTime     @default(now())
+
+  @@index([actorId])
+  @@index([targetType, targetId])
+}
