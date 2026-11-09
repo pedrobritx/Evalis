@@ -1,5 +1,7 @@
 # Evalis
 
+> **Status: paused on 9 November 2026.** Not in active development. Nothing has been removed, and work can resume from this point.
+
 Evalis is an adaptive CEFR placement MVP for ESL programs.
 
 It includes:
